@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coaching Risk Checker</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --surface: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e2e2dd;
+    --failed: #b42318; --failed-bg: #fdecea;
+    --high: #c2410c; --high-bg: #fff1e6;
+    --atrisk: #a16207; --atrisk-bg: #fef7d6;
+    --watch: #1d4ed8; --watch-bg: #e8effd;
+    --clear: #15803d; --clear-bg: #e7f6ec;
+    --config: #7e22ce; --config-bg: #f3e8ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161615; --surface: #1f1f1d; --ink: #ececea; --muted: #a3a39d; --line: #34342f;
+      --failed: #f97066; --failed-bg: #3a1714; --high: #fb923c; --high-bg: #3a2010;
+      --atrisk: #facc15; --atrisk-bg: #352c0a; --watch: #7aa2ff; --watch-bg: #172343;
+      --clear: #4ade80; --clear-bg: #11301d; --config: #c084fc; --config-bg: #2c1840;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .drop { display: block; border: 1.5px dashed var(--line); background: var(--surface); border-radius: 10px;
+    padding: 28px 16px; text-align: center; cursor: pointer; }
+  .drop.over { border-color: var(--watch); }
+  .drop strong { display: block; font-size: 15px; margin-bottom: 4px; }
+  .drop span { color: var(--muted); }
+  .file-name { margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .msgs { margin: 16px 0 0; }
+  .msg { padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
+  .msg.error { background: var(--failed-bg); color: var(--failed); }
+  .msg.warn { background: var(--atrisk-bg); color: var(--ink); }
+  .msg.info { background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 20px 0 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    text-align: left; cursor: pointer; font: inherit; color: inherit; border-left-width: 4px; }
+  .tile .n { font-size: 26px; font-weight: 650; line-height: 1.1; }
+  .tile .l { color: var(--muted); font-size: 12px; }
+  .tile.active { outline: 2px solid var(--ink); outline-offset: -1px; }
+  .tile[data-s="Failed"] { border-left-color: var(--failed); }
+  .tile[data-s="High-risk"] { border-left-color: var(--high); }
+  .tile[data-s="At-risk"] { border-left-color: var(--atrisk); }
+  .tile[data-s="Watch"] { border-left-color: var(--watch); }
+  .tile[data-s="Clear"] { border-left-color: var(--clear); }
+  .tile[data-s="config"] { border-left-color: var(--config); }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  select, input[type=search] { font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+  input[type=search] { min-width: 200px; flex: 1; max-width: 320px; }
+  .count { color: var(--muted); margin-left: auto; font-size: 13px; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 900px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
+  th.item, td.item { text-align: center; padding: 8px 4px; }
+  th.item { cursor: default; }
+  tr:last-child td { border-bottom: none; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .b-Failed { background: var(--failed-bg); color: var(--failed); }
+  .b-High-risk { background: var(--high-bg); color: var(--high); }
+  .b-At-risk { background: var(--atrisk-bg); color: var(--atrisk); }
+  .b-Watch { background: var(--watch-bg); color: var(--watch); }
+  .b-Clear { background: var(--clear-bg); color: var(--clear); }
+  .flag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-right: 4px; }
+  .f-config { background: var(--config-bg); color: var(--config); }
+  .f-net { background: var(--atrisk-bg); color: var(--ink); }
+  .f-odd { background: var(--failed-bg); color: var(--failed); }
+  .c { display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 5px; font-size: 12px; font-weight: 700; }
+  .c-earned { background: var(--clear-bg); color: var(--clear); }
+  .c-lost { background: var(--failed-bg); color: var(--failed); }
+  .c-pending { color: var(--muted); }
+  .c-config { background: var(--config-bg); color: var(--config); }
+  .c-odd { background: var(--atrisk-bg); color: var(--atrisk); }
+  .legend { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .legend .c { width: 18px; height: 18px; line-height: 18px; font-size: 11px; margin: 0 3px 0 10px; vertical-align: middle; }
+  .rules { margin-top: 28px; color: var(--muted); font-size: 13px; }
+  .rules summary { cursor: pointer; color: var(--ink); }
+  .rules table { min-width: 0; width: auto; margin-top: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Coaching Risk Checker</h1>
+  <p class="sub">Load a Canvas gradebook export for Coaching 1 (SKL-0110). The file is processed in your browser and is not uploaded anywhere.</p>
+
+  <label class="drop" id="drop">
+    <strong>Drop the gradebook CSV here, or click to choose</strong>
+    <span>Canvas “Export entire gradebook” CSV (.xlsx also accepted)</span>
+    <input type="file" id="file" accept=".csv,.xlsx,.xls" hidden>
+    <div class="file-name" id="fileName"></div>
+  </label>
+
+  <div class="msgs" id="msgs"></div>
+
+  <section id="results" class="hidden">
+    <div class="tiles" id="tiles"></div>
+    <div class="controls">
+      <select id="cohort"><option value="">All cohorts</option></select>
+      <input type="search" id="search" placeholder="Search name or ID">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="table-wrap"><table id="table"><thead></thead><tbody></tbody></table></div>
+    <p class="legend">
+      <span class="c c-earned">✓</span>complete
+      <span class="c c-lost">✗</span>incomplete (0)
+      <span class="c c-pending">·</span>not yet marked
+      <span class="c c-config">!</span>N/A – configuration issue
+      <span class="c c-odd">?</span>unexpected value
+    </p>
+  </section>
+
+  <details class="rules">
+    <summary>How status is calculated</summary>
+    <p>Each item is complete (full marks) or incomplete (0). Blank cells are not yet marked and count as no loss. The two workshops form one 10-mark component: completing either secures it; it is lost only when both are 0. A pass requires 72.5%, so a student fails once more than 27.5 marks are lost.</p>
+    <table>
+      <tr><th>Status</th><th>Marks lost</th><th>Meaning</th></tr>
+      <tr><td><span class="badge b-Clear">Clear</span></td><td>0</td><td>Nothing lost</td></tr>
+      <tr><td><span class="badge b-Watch">Watch</span></td><td>&gt;0 to 12.5</td><td>Some marks lost</td></tr>
+      <tr><td><span class="badge b-At-risk">At-risk</span></td><td>&gt;12.5 to 20</td><td>One more missed meeting fails</td></tr>
+      <tr><td><span class="badge b-High-risk">High-risk</span></td><td>&gt;20 to 27.5</td><td>Any one more missed item fails</td></tr>
+      <tr><td><span class="badge b-Failed">Failed</span></td><td>&gt;27.5</td><td>Cannot reach 72.5%</td></tr>
+    </table>
+  </details>
+</main>
+
+<script>
+// BEGIN CORE — pure logic, no DOM. Tested by test.js.
+const CONFIG = {
+  maxLoss: 27.5,                 // 100 - 72.5 pass mark
+  thresholds: { watch: 0, atRisk: 12.5, highRisk: 20 },
+  expectedPoints: { attendance: 15, activity: 7.5, workshop: 5 },
+  workshopComponent: 10,
+  sessions: 4,
+};
+const STATUS_ORDER = ['Failed', 'High-risk', 'At-risk', 'Watch', 'Clear'];
+
+function parseCSV(text) {
+  const rows = []; let row = [], field = '', i = 0, q = false;
+  text = text.replace(/^﻿/, '');
+  while (i < text.length) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += ch;
+    i++;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+// Match graded columns by name, ignoring Canvas assignment IDs. Only columns ending "(digits)" are assignments.
+function findColumns(header) {
+  const cols = { attendance: {}, activity: {}, workshops: [], workshopNums: [] }, errors = [];
+  header.forEach((raw, i) => {
+    const h = (raw || '').trim();
+    if (!/\(\d+\)\s*$/.test(h)) return;
+    let m;
+    if ((m = h.match(/^Coaching Session\s*(\d+)\s*:\s*Attendance/i))) cols.attendance[m[1]] = i;
+    else if ((m = h.match(/^Develop\w*\s+Activity\s*(\d+)/i))) cols.activity[m[1]] = i;
+    else if ((m = h.match(/^Workshop\s*(\d+)\s+Activity/i))) { cols.workshops.push(i); cols.workshopNums.push(m[1]); }
+  });
+  for (let n = 1; n <= CONFIG.sessions; n++) {
+    if (cols.attendance[n] === undefined) errors.push(`Missing column: Coaching Session ${n} Attendance`);
+    if (cols.activity[n] === undefined) errors.push(`Missing column: Developmental Activity ${n}`);
+  }
+  if (cols.workshops.length !== 2) errors.push(`Expected 2 workshop activity columns, found ${cols.workshops.length}`);
+  return { cols, errors };
+}
+
+function classifyCell(raw, points) {
+  const v = (raw ?? '').trim();
+  if (v === '') return { state: 'pending', loss: 0 };
+  if (/^n\/?a$/i.test(v)) return { state: 'config', loss: 0, raw: v };
+  const n = Number(v);
+  if (!Number.isFinite(n)) return { state: 'config', loss: 0, raw: v };
+  if (n === 0) return { state: 'lost', loss: points };
+  if (Math.abs(n - points) < 1e-9) return { state: 'earned', loss: 0 };
+  return { state: 'odd', loss: Math.max(0, points - n), raw: v, value: n };
+}
+
+function statusFor(lost) {
+  const t = CONFIG.thresholds;
+  if (lost > CONFIG.maxLoss + 1e-9) return 'Failed';
+  if (lost > t.highRisk + 1e-9) return 'High-risk';
+  if (lost > t.atRisk + 1e-9) return 'At-risk';
+  if (lost > t.watch + 1e-9) return 'Watch';
+  return 'Clear';
+}
+
+function isTestStudent(name, section) {
+  return /^test student$/i.test((name || '').trim()) || ((section || '').match(/Cohort/gi) || []).length > 1;
+}
+
+function coachFromSection(section) {
+  const m = (section || '').match(/\band\s+(.+?)\s+Cohort\s*$/i);
+  return m ? m[1] : (section || '').trim() || '—';
+}
+
+function analyse(rows) {
+  const warnings = [];
+  if (!rows.length) return { errors: ['The file is empty.'], students: [], warnings };
+  const header = rows[0];
+  const { cols, errors } = findColumns(header);
+  if (errors.length) return { errors, students: [], warnings };
+  const col = name => header.findIndex(h => (h || '').trim().toLowerCase() === name);
+  const iName = col('student'), iId = col('sis user id'), iLogin = col('sis login id'), iSection = col('section');
+
+  const pointsRow = rows.find(r => /^points possible$/i.test((r[0] || '').trim()));
+  const pts = { attendance: {}, activity: {}, workshop: [] };
+  const readPts = (i, expected, label) => {
+    const p = pointsRow ? Number((pointsRow[i] || '').trim()) : NaN;
+    if (Number.isFinite(p) && Math.abs(p - expected) > 1e-9)
+      warnings.push(`${label} is worth ${p} points in this export (expected ${expected}). Using ${expected}.`);
+    return expected;
+  };
+  if (!pointsRow) warnings.push('No "Points Possible" row found; using the standard weightings.');
+  for (let n = 1; n <= CONFIG.sessions; n++) {
+    pts.attendance[n] = readPts(cols.attendance[n], CONFIG.expectedPoints.attendance, `Session ${n} attendance`);
+    pts.activity[n] = readPts(cols.activity[n], CONFIG.expectedPoints.activity, `Developmental Activity ${n}`);
+  }
+  cols.workshops.forEach((i, k) => pts.workshop[k] = readPts(i, CONFIG.expectedPoints.workshop, `Workshop ${cols.workshopNums[k]} activity`));
+
+  const students = []; let excluded = 0;
+  for (const r of rows.slice(1)) {
+    const name = (r[iName] || '').trim(), section = (r[iSection] || '').trim();
+    if (/^points possible$/i.test(name)) continue;
+    if (!name && !section) continue;                      // "Manual Posting" / blank metadata rows
+    if (isTestStudent(name, section)) { excluded++; continue; }
+
+    const items = []; let lost = 0;
+    for (let n = 1; n <= CONFIG.sessions; n++) {
+      const a = classifyCell(r[cols.attendance[n]], pts.attendance[n]);
+      const d = classifyCell(r[cols.activity[n]], pts.activity[n]);
+      items.push({ key: `S${n}`, label: `Session ${n} attendance`, ...a });
+      items.push({ key: `D${n}`, label: `Activity ${n}`, ...d });
+      lost += a.loss + d.loss;
+    }
+    const w = cols.workshops.map((i, k) => classifyCell(r[i], pts.workshop[k]));
+    w.forEach((c, k) => items.push({ key: `W${cols.workshopNums[k]}`, label: `Workshop ${cols.workshopNums[k]}`, ...c }));
+    const graded = w.filter(c => c.state === 'lost' || c.state === 'earned' || c.state === 'odd');
+    let workshopLoss = 0;
+    if (graded.length === 2) {
+      const best = Math.max(...graded.map((c, k) => c.state === 'earned' ? pts.workshop[k] : (c.value || 0)));
+      workshopLoss = CONFIG.workshopComponent * (1 - best / CONFIG.expectedPoints.workshop);
+      if (workshopLoss < 0) workshopLoss = 0;
+    }
+    lost += workshopLoss;
+    const safetyNetUsed = w.some(c => c.state === 'lost') && w.some(c => c.state === 'pending' || c.state === 'config');
+    lost = Math.round(lost * 100) / 100;
+
+    students.push({
+      name, id: (r[iId] || r[iLogin] || '').trim(), section, coach: coachFromSection(section),
+      items, lost, margin: Math.round((CONFIG.maxLoss - lost) * 100) / 100, status: statusFor(lost),
+      config: items.some(i => i.state === 'config'),
+      odd: items.some(i => i.state === 'odd'),
+      safetyNetUsed,
+    });
+  }
+  if (excluded) warnings.push(`${excluded} test student row${excluded > 1 ? 's' : ''} excluded.`);
+  return { errors: [], students, warnings };
+}
+// END CORE
+</script>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let data = [], statusFilter = '', configOnly = false, sortKey = 'lost', sortDir = -1;
+
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const symbol = { earned: '✓', lost: '✗', pending: '·', config: '!', odd: '?' };
+
+  function showMessages(errors, warnings) {
+    $('msgs').innerHTML =
+      errors.map(e => `<div class="msg error">${esc(e)}</div>`).join('') +
+      warnings.map(w => `<div class="msg ${/excluded/.test(w) ? 'info' : 'warn'}">${esc(w)}</div>`).join('');
+  }
+
+  function renderTiles() {
+    const counts = Object.fromEntries(STATUS_ORDER.map(s => [s, 0]));
+    data.forEach(s => counts[s.status]++);
+    const cfg = data.filter(s => s.config).length;
+    $('tiles').innerHTML = STATUS_ORDER.map(s =>
+      `<button class="tile ${statusFilter === s ? 'active' : ''}" data-s="${s}"><div class="n">${counts[s]}</div><div class="l">${s}</div></button>`
+    ).join('') + `<button class="tile ${configOnly ? 'active' : ''}" data-s="config"><div class="n">${cfg}</div><div class="l">Configuration issue</div></button>`;
+    $('tiles').querySelectorAll('.tile').forEach(b => b.onclick = () => {
+      const s = b.dataset.s;
+      if (s === 'config') configOnly = !configOnly; else statusFilter = statusFilter === s ? '' : s;
+      renderTiles(); renderTable();
+    });
+  }
+
+  function renderTable() {
+    const cohort = $('cohort').value, q = $('search').value.trim().toLowerCase();
+    let rows = data.filter(s =>
+      (!statusFilter || s.status === statusFilter) && (!configOnly || s.config) &&
+      (!cohort || s.coach === cohort) && (!q || s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)));
+    const val = s => sortKey === 'status' ? STATUS_ORDER.indexOf(s.status) * -1 : s[sortKey];
+    rows.sort((a, b) => {
+      const x = val(a), y = val(b);
+      const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
+      return c * sortDir || b.lost - a.lost || a.name.localeCompare(b.name);
+    });
+    const itemKeys = data[0] ? data[0].items.map(i => i.key) : [];
+    const arrow = k => sortKey === k ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+    $('table').tHead.innerHTML = `<tr>
+      <th data-k="name">Student${arrow('name')}</th><th data-k="id">SIS ID${arrow('id')}</th>
+      <th data-k="coach">Cohort${arrow('coach')}</th><th data-k="status">Status${arrow('status')}</th>
+      <th data-k="lost" class="num">Lost${arrow('lost')}</th><th data-k="margin" class="num">Margin${arrow('margin')}</th>
+      ${itemKeys.map(k => `<th class="item">${k}</th>`).join('')}<th>Flags</th></tr>`;
+    $('table').tHead.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+      const k = th.dataset.k;
+      if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = (k === 'lost' || k === 'status') ? -1 : 1; }
+      renderTable();
+    });
+    $('table').tBodies[0].innerHTML = rows.map(s => `<tr>
+      <td>${esc(s.name)}</td><td>${esc(s.id)}</td><td>${esc(s.coach)}</td>
+      <td><span class="badge b-${s.status}">${s.status}</span></td>
+      <td class="num">${s.lost}</td><td class="num">${s.margin < 0 ? '—' : s.margin}</td>
+      ${s.items.map(i => `<td class="item"><span class="c c-${i.state}" title="${esc(i.label)}${i.raw ? ': ' + esc(i.raw) : ''}">${symbol[i.state]}</span></td>`).join('')}
+      <td>${s.config ? '<span class="flag f-config">N/A config</span>' : ''}${s.safetyNetUsed ? '<span class="flag f-net">Workshop net used</span>' : ''}${s.odd ? '<span class="flag f-odd">Unexpected value</span>' : ''}</td>
+    </tr>`).join('');
+    $('count').textContent = `${rows.length} of ${data.length} students`;
+  }
+
+  function load(text, fileName) {
+    $('fileName').textContent = fileName;
+    const res = analyse(parseCSV(text));
+    showMessages(res.errors, res.warnings);
+    data = res.students; statusFilter = ''; configOnly = false;
+    $('results').classList.toggle('hidden', !!res.errors.length || !data.length);
+    if (res.errors.length) return;
+    const coaches = [...new Set(data.map(s => s.coach))].sort();
+    $('cohort').innerHTML = '<option value="">All cohorts</option>' + coaches.map(c => `<option>${esc(c)}</option>`).join('');
+    renderTiles(); renderTable();
+  }
+
+  function loadXlsx(buf, fileName) {
+    const go = () => {
+      const wb = XLSX.read(buf, { type: 'array' });
+      load(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { blankrows: false }), fileName);
+    };
+    if (window.XLSX) return go();
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = go;
+    s.onerror = () => showMessages(['Could not load the Excel reader (offline?). Export the gradebook as CSV instead.'], []);
+    document.head.appendChild(s);
+  }
+
+  function handle(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    if (/\.xlsx?$/i.test(file.name)) { reader.onload = () => loadXlsx(reader.result, file.name); reader.readAsArrayBuffer(file); }
+    else { reader.onload = () => load(reader.result, file.name); reader.readAsText(file); }
+  }
+
+  $('file').onchange = e => handle(e.target.files[0]);
+  const drop = $('drop');
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = () => drop.classList.remove('over');
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files[0]); };
+  $('cohort').onchange = renderTable;
+  $('search').oninput = renderTable;
+})();
+</script>
+</body>
+</html>
