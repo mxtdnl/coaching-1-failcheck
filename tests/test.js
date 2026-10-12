@@ -3,7 +3,7 @@ const fs = require('fs');
 const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 const core = html.split('// BEGIN CORE')[1].split('// END CORE')[0].replace(/^[^\n]*\n/, '');
-const { parseCSV, analyse, statusFor } = new Function(core + '; return { parseCSV, analyse, statusFor };')();
+const { parseCSV, findColumns, analyse, statusFor } = new Function(core + '; return { parseCSV, findColumns, analyse, statusFor };')();
 
 // Thresholds
 const cases = [[0, 'Clear'], [7.5, 'Watch'], [10, 'Watch'], [12.5, 'Watch'], [15, 'At-risk'], [17.5, 'At-risk'],
@@ -37,6 +37,46 @@ assert.strictEqual(by.miss2att.status, 'Failed');
 assert.strictEqual(by.high.lost, 25); assert.strictEqual(by.high.status, 'High-risk');
 assert.ok(by.config.config); assert.strictEqual(by.config.lost, 0);
 assert.strictEqual(by.clear.coach, 'Ann B.');
+
+// Header variants: Canvas uses both "Development Activity" and "Developmental Activity"
+const hdr = d4 => ['Student', 'Section',
+  ...[1, 2, 3, 4].map(n => `Coaching Session ${n}: Attendance & Engagement (8${n}0)`),
+  ...[1, 2, 3].map(n => `Developmental Activity ${n} (8${n}1)`), d4,
+  'Workshop 2 Activity (895)', 'Workshop 3 Activity (896)'];
+for (const d4 of ['Development Activity 4 (841)', 'Developmental Activity 4 (841)']) {
+  const fc = findColumns(hdr(d4));
+  assert.deepStrictEqual(fc.errors, [], d4);
+  assert.strictEqual(fc.cols.activity[4], 9, d4);
+}
+assert.ok(findColumns(hdr('Developmental Activity 4')).errors.some(e => /Activity 4/.test(e)), 'no (digits) → not matched');
+
+// Quoted fields containing commas and escaped quotes
+assert.deepStrictEqual(parseCSV('a,"b, c","d ""q""",e'), [['a', 'b, c', 'd "q"', 'e']]);
+const quoted = analyse(parseCSV([H, P, row('"Smith, Jane"', '0,,,,,,,,,')].join('\n')));
+assert.strictEqual(quoted.students[0].name, 'Smith, Jane');
+assert.strictEqual(quoted.students[0].lost, 15, 'cells stay aligned after a quoted comma');
+
+// CRLF line endings with a UTF-8 BOM give the same result as plain LF
+const crlfRows = parseCSV('\uFEFF' + csv.split('\n').join('\r\n'));
+assert.strictEqual(crlfRows[0][0], 'Student', 'BOM stripped from first header cell');
+assert.ok(crlfRows.every(r => r.every(c => !c.includes('\r'))), 'no stray CR');
+const crlf = analyse(crlfRows);
+assert.deepStrictEqual(crlf.errors, []);
+assert.deepStrictEqual(crlf.students.map(s => [s.name, s.lost, s.status, s.coach]),
+  res.students.map(s => [s.name, s.lost, s.status, s.coach]));
+
+// "EX" (excused) is a configuration issue: scored as blank and flagged
+const ex = analyse(parseCSV([H, P, row('ex', 'EX,7.5,,,,,,,0,EX')].join('\n'))).students[0];
+assert.ok(ex.config); assert.strictEqual(ex.lost, 0); assert.strictEqual(ex.status, 'Clear');
+assert.strictEqual(ex.items.find(i => i.key === 'S1').state, 'config');
+assert.ok(ex.safetyNetUsed, 'workshop 0 + EX counts as net used');
+
+// Non-standard weighting in Points Possible: warning only, expected weightings still used
+const P20 = P.replace('    Points Possible,,,,,15,', '    Points Possible,,,,,20,');
+const odd = analyse(parseCSV([H, P20, row('w', '0,,,,,,,,,')].join('\n')));
+assert.deepStrictEqual(odd.errors, []);
+assert.ok(odd.warnings.some(w => /Session 1 attendance is worth 20 points.*expected 15/.test(w)), 'weighting warning');
+assert.strictEqual(odd.students[0].lost, 15);
 
 // Missing column → error
 assert.ok(analyse(parseCSV('Student,Section\nA,B')).errors.length > 0);
