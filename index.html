@@ -121,14 +121,14 @@
 
   <details class="rules">
     <summary>How status is calculated</summary>
-    <p>Each item is complete (full marks) or incomplete (0). Blank cells are not yet marked and count as no loss. The two workshops form one 10-mark component: completing either secures it; it is lost only when both are 0. A pass requires 72.5%, so a student fails once more than 27.5 marks are lost.</p>
+    <p>Each item is complete (full marks) or incomplete (0). Blank cells are not yet marked and count as no loss. The two workshops form one <span data-cfg="ws"></span>-mark component: completing either secures it; it is lost only when both are 0. A pass requires <span data-cfg="pass"></span>%, so a student fails once more than <span data-cfg="max"></span> marks are lost.</p>
     <table>
       <tr><th>Status</th><th>Marks lost</th><th>Meaning</th></tr>
       <tr><td><span class="badge b-Clear">Clear</span></td><td>0</td><td>Nothing lost</td></tr>
-      <tr><td><span class="badge b-Watch">Watch</span></td><td>&gt;0 to 12.5</td><td>Some marks lost</td></tr>
-      <tr><td><span class="badge b-At-risk">At-risk</span></td><td>&gt;12.5 to 20</td><td>One more missed meeting fails</td></tr>
-      <tr><td><span class="badge b-High-risk">High-risk</span></td><td>&gt;20 to 27.5</td><td>Any one more missed item fails</td></tr>
-      <tr><td><span class="badge b-Failed">Failed</span></td><td>&gt;27.5</td><td>Cannot reach 72.5%</td></tr>
+      <tr><td><span class="badge b-Watch">Watch</span></td><td>&gt;<span data-cfg="watch"></span> to <span data-cfg="atRisk"></span></td><td>Some marks lost</td></tr>
+      <tr><td><span class="badge b-At-risk">At-risk</span></td><td>&gt;<span data-cfg="atRisk"></span> to <span data-cfg="highRisk"></span></td><td>One more missed meeting fails</td></tr>
+      <tr><td><span class="badge b-High-risk">High-risk</span></td><td>&gt;<span data-cfg="highRisk"></span> to <span data-cfg="max"></span></td><td>Any one more missed item fails</td></tr>
+      <tr><td><span class="badge b-Failed">Failed</span></td><td>&gt;<span data-cfg="max"></span></td><td>Cannot reach <span data-cfg="pass"></span>%</td></tr>
     </table>
   </details>
 </main>
@@ -140,13 +140,14 @@ const CONFIG = {
   thresholds: { watch: 0, atRisk: 12.5, highRisk: 20 },
   expectedPoints: { attendance: 15, activity: 7.5, workshop: 5 },
   workshopComponent: 10,
+  workshops: 2,
   sessions: 4,
 };
 const STATUS_ORDER = ['Failed', 'High-risk', 'At-risk', 'Watch', 'Clear'];
 
 function parseCSV(text) {
   const rows = []; let row = [], field = '', i = 0, q = false;
-  text = text.replace(/^﻿/, '');
+  text = text.replace(/^\uFEFF/, '');
   while (i < text.length) {
     const ch = text[i];
     if (q) {
@@ -179,7 +180,9 @@ function findColumns(header) {
     if (cols.attendance[n] === undefined) errors.push(`Missing column: Coaching Session ${n} Attendance`);
     if (cols.activity[n] === undefined) errors.push(`Missing column: Developmental Activity ${n}`);
   }
-  if (cols.workshops.length !== 2) errors.push(`Expected 2 workshop activity columns, found ${cols.workshops.length}`);
+  if (cols.workshops.length !== CONFIG.workshops)
+    errors.push(`Expected ${CONFIG.workshops} "Workshop N Activity" columns, found ${cols.workshops.length}` +
+      (cols.workshopNums.length ? ` (Workshop ${cols.workshopNums.join(', ')})` : ''));
   return { cols, errors };
 }
 
@@ -239,7 +242,7 @@ function analyse(rows) {
   const students = []; let excluded = 0;
   for (const r of rows.slice(1)) {
     const name = (r[iName] || '').trim(), section = (r[iSection] || '').trim();
-    if (/^points possible$/i.test(name)) continue;
+    if (r === pointsRow) continue;
     if (!name && !section) continue;                      // "Manual Posting" / blank metadata rows
     if (isTestStudent(name, section)) { excluded++; continue; }
 
@@ -376,6 +379,9 @@ function analyse(rows) {
   drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
   drop.ondragleave = () => drop.classList.remove('over');
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files[0]); };
+  const cfgText = { pass: 100 - CONFIG.maxLoss, max: CONFIG.maxLoss, ws: CONFIG.workshopComponent,
+    watch: CONFIG.thresholds.watch, atRisk: CONFIG.thresholds.atRisk, highRisk: CONFIG.thresholds.highRisk };
+  document.querySelectorAll('[data-cfg]').forEach(el => el.textContent = cfgText[el.dataset.cfg]);
   $('cohort').onchange = renderTable;
   $('search').oninput = renderTable;
 })();
