@@ -34,6 +34,7 @@
   .drop strong { display: block; font-size: 15px; margin-bottom: 4px; }
   .drop span { color: var(--muted); }
   .file-name { margin-top: 10px; color: var(--muted); font-size: 13px; }
+  .format { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; color: var(--muted); font-size: 13px; }
   .msgs { margin: 16px 0 0; }
   .msg { padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
   .msg.error { background: var(--failed-bg); color: var(--failed); }
@@ -100,6 +101,11 @@
     <div class="file-name" id="fileName"></div>
   </label>
 
+  <div class="format">
+    <label for="format">Gradebook format</label>
+    <select id="format"><option value="auto">Detect from Section</option></select>
+  </div>
+
   <div class="msgs" id="msgs"></div>
 
   <section id="results" class="hidden">
@@ -121,7 +127,7 @@
 
   <details class="rules">
     <summary>How status is calculated</summary>
-    <p>Each item is complete (full marks) or incomplete (0). Blank cells are not yet marked and count as no loss. The two workshops form one <span data-cfg="ws"></span>-mark component: completing either secures it; it is lost only when both are 0. A pass requires <span data-cfg="pass"></span>%, so a student fails once more than <span data-cfg="max"></span> marks are lost.</p>
+    <p>Each item is complete (full marks) or incomplete (0). Blank cells are not yet marked and count as no loss. <strong>London:</strong> the two workshops form one <span data-cfg="ws"></span>-mark component: completing either secures it; it is lost only when both are 0. <strong>Boston:</strong> each workshop is worth <span data-cfg="bosPts"></span> marks and counts separately; Workshop <span data-cfg="bosIgnore"></span> is worth 0 and is ignored. A pass requires <span data-cfg="pass"></span>%, so a student fails once more than <span data-cfg="max"></span> marks are lost.</p>
     <table>
       <tr><th>Status</th><th>Marks lost</th><th>Meaning</th></tr>
       <tr><td><span class="badge b-Clear">Clear</span></td><td>0</td><td>Nothing lost</td></tr>
@@ -138,10 +144,15 @@
 const CONFIG = {
   maxLoss: 27.5,                 // 100 - 72.5 pass mark
   thresholds: { watch: 0, atRisk: 12.5, highRisk: 20 },
-  expectedPoints: { attendance: 15, activity: 7.5, workshop: 5 },
-  workshopComponent: 10,
-  workshops: 2,
+  expectedPoints: { attendance: 15, activity: 7.5 },
   sessions: 4,
+  // Campuses differ only in workshop set-up. The campus code in Section picks the format unless chosen manually.
+  formats: {
+    london: { label: 'London', section: /\bLON\d+\b/i,
+      workshop: { rule: 'bestOf', count: 2, points: 5, component: 10, ignore: [] } },  // either workshop secures all 10
+    boston: { label: 'Boston', section: /\bBOS\d+\b/i,
+      workshop: { rule: 'each', count: 2, points: 5, ignore: [1] } },                  // each counts; Workshop 1 is worth 0
+  },
 };
 const STATUS_ORDER = ['Failed', 'High-risk', 'At-risk', 'Watch', 'Clear'];
 
@@ -166,22 +177,26 @@ function parseCSV(text) {
 }
 
 // Match graded columns by name, ignoring Canvas assignment IDs. Only columns ending "(digits)" are assignments.
-function findColumns(header) {
-  const cols = { attendance: {}, activity: {}, workshops: [], workshopNums: [] }, errors = [];
+function findColumns(header, fmt) {
+  const ws = fmt.workshop;
+  const cols = { attendance: {}, activity: {}, workshops: [], workshopNums: [], ignoredWorkshops: [] }, errors = [];
   header.forEach((raw, i) => {
     const h = (raw || '').trim();
     if (!/\(\d+\)\s*$/.test(h)) return;
     let m;
     if ((m = h.match(/^Coaching Session\s*(\d+)\s*:\s*Attendance/i))) cols.attendance[m[1]] = i;
     else if ((m = h.match(/^Develop\w*\s+Activity\s*(\d+)/i))) cols.activity[m[1]] = i;
-    else if ((m = h.match(/^Workshop\s*(\d+)\s+Activity/i))) { cols.workshops.push(i); cols.workshopNums.push(m[1]); }
+    else if ((m = h.match(/^Workshop\s*(\d+)\s+Activity/i))) {
+      if (ws.ignore.includes(Number(m[1]))) cols.ignoredWorkshops.push(m[1]);
+      else { cols.workshops.push(i); cols.workshopNums.push(m[1]); }
+    }
   });
   for (let n = 1; n <= CONFIG.sessions; n++) {
     if (cols.attendance[n] === undefined) errors.push(`Missing column: Coaching Session ${n} Attendance`);
     if (cols.activity[n] === undefined) errors.push(`Missing column: Developmental Activity ${n}`);
   }
-  if (cols.workshops.length !== CONFIG.workshops)
-    errors.push(`Expected ${CONFIG.workshops} "Workshop N Activity" columns, found ${cols.workshops.length}` +
+  if (cols.workshops.length !== ws.count)
+    errors.push(`Expected ${ws.count} "Workshop N Activity" columns for the ${fmt.label} format, found ${cols.workshops.length}` +
       (cols.workshopNums.length ? ` (Workshop ${cols.workshopNums.join(', ')})` : ''));
   return { cols, errors };
 }
@@ -215,12 +230,40 @@ function coachFromSection(section) {
   return m ? m[1] : (section || '').trim() || '—';
 }
 
-function analyse(rows) {
-  const warnings = [];
-  if (!rows.length) return { errors: ['The file is empty.'], students: [], warnings };
+// Format keys whose campus code appears in any Section cell.
+function detectFormats(rows) {
+  const iSection = (rows[0] || []).findIndex(h => (h || '').trim().toLowerCase() === 'section');
+  if (iSection < 0) return [];
+  return Object.keys(CONFIG.formats).filter(k =>
+    rows.slice(1).some(r => CONFIG.formats[k].section.test(r[iSection] || '')));
+}
+
+function analyse(rows, format = 'auto') {
+  const warnings = [], info = [];
+  const fail = errors => ({ errors, students: [], warnings, info, format: null });
+  if (!rows.length) return fail(['The file is empty.']);
+  const labels = ks => ks.map(k => CONFIG.formats[k].label).join(' and ');
+  if (format === 'auto') {
+    const found = detectFormats(rows);
+    if (found.length !== 1) return fail([found.length
+      ? `This export contains both ${labels(found)} sections. Choose the format manually.`
+      : 'Could not detect the campus from the Section column. Choose the format manually.']);
+    format = found[0];
+    info.push(`${labels([format])} format, detected from the Section column.`);
+  } else if (!CONFIG.formats[format]) return fail([`Unknown format: ${format}`]);
+  else {
+    info.push(`${labels([format])} format, chosen manually.`);
+    const found = detectFormats(rows);
+    if (found.length && !found.includes(format))
+      warnings.push(`The Section column indicates ${labels(found)}, but the ${labels([format])} format was chosen.`);
+  }
+  const fmt = CONFIG.formats[format], ws = fmt.workshop;
+
   const header = rows[0];
-  const { cols, errors } = findColumns(header);
-  if (errors.length) return { errors, students: [], warnings };
+  const { cols, errors } = findColumns(header, fmt);
+  if (errors.length) return fail(errors);
+  if (cols.ignoredWorkshops.length)
+    info.push(`Workshop ${cols.ignoredWorkshops.join(', ')} ignored: not scored in the ${fmt.label} format.`);
   const col = name => header.findIndex(h => (h || '').trim().toLowerCase() === name);
   const iName = col('student'), iId = col('sis user id'), iLogin = col('sis login id'), iSection = col('section');
 
@@ -237,7 +280,7 @@ function analyse(rows) {
     pts.attendance[n] = readPts(cols.attendance[n], CONFIG.expectedPoints.attendance, `Session ${n} attendance`);
     pts.activity[n] = readPts(cols.activity[n], CONFIG.expectedPoints.activity, `Developmental Activity ${n}`);
   }
-  cols.workshops.forEach((i, k) => pts.workshop[k] = readPts(i, CONFIG.expectedPoints.workshop, `Workshop ${cols.workshopNums[k]} activity`));
+  cols.workshops.forEach((i, k) => pts.workshop[k] = readPts(i, ws.points, `Workshop ${cols.workshopNums[k]} activity`));
 
   const students = []; let excluded = 0;
   for (const r of rows.slice(1)) {
@@ -256,15 +299,17 @@ function analyse(rows) {
     }
     const w = cols.workshops.map((i, k) => classifyCell(r[i], pts.workshop[k]));
     w.forEach((c, k) => items.push({ key: `W${cols.workshopNums[k]}`, label: `Workshop ${cols.workshopNums[k]}`, ...c }));
-    const graded = w.filter(c => c.state === 'lost' || c.state === 'earned' || c.state === 'odd');
-    let workshopLoss = 0;
-    if (graded.length === 2) {
-      const best = Math.max(...graded.map((c, k) => c.state === 'earned' ? pts.workshop[k] : (c.value || 0)));
-      workshopLoss = CONFIG.workshopComponent * (1 - best / CONFIG.expectedPoints.workshop);
-      if (workshopLoss < 0) workshopLoss = 0;
-    }
+    let workshopLoss = 0, safetyNetUsed = false;
+    if (ws.rule === 'bestOf') {
+      // One component: lost only once every workshop is marked and none is complete.
+      const graded = w.filter(c => c.state === 'lost' || c.state === 'earned' || c.state === 'odd');
+      if (graded.length === w.length) {
+        const best = Math.max(...graded.map(c => c.state === 'earned' ? ws.points : (c.value || 0)));
+        workshopLoss = Math.max(0, ws.component * (1 - best / ws.points));
+      }
+      safetyNetUsed = w.some(c => c.state === 'lost') && w.some(c => c.state === 'pending' || c.state === 'config');
+    } else workshopLoss = w.reduce((t, c) => t + c.loss, 0);
     lost += workshopLoss;
-    const safetyNetUsed = w.some(c => c.state === 'lost') && w.some(c => c.state === 'pending' || c.state === 'config');
     lost = Math.round(lost * 100) / 100;
 
     students.push({
@@ -275,8 +320,8 @@ function analyse(rows) {
       safetyNetUsed,
     });
   }
-  if (excluded) warnings.push(`${excluded} test student row${excluded > 1 ? 's' : ''} excluded.`);
-  return { errors: [], students, warnings };
+  if (excluded) info.push(`${excluded} test student row${excluded > 1 ? 's' : ''} excluded.`);
+  return { errors: [], students, warnings, info, format };
 }
 // END CORE
 </script>
@@ -289,10 +334,11 @@ function analyse(rows) {
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const symbol = { earned: '✓', lost: '✗', pending: '·', config: '!', odd: '?' };
 
-  function showMessages(errors, warnings) {
+  function showMessages(errors, warnings, info = []) {
     $('msgs').innerHTML =
       errors.map(e => `<div class="msg error">${esc(e)}</div>`).join('') +
-      warnings.map(w => `<div class="msg ${/excluded/.test(w) ? 'info' : 'warn'}">${esc(w)}</div>`).join('');
+      warnings.map(w => `<div class="msg warn">${esc(w)}</div>`).join('') +
+      info.map(m => `<div class="msg info">${esc(m)}</div>`).join('');
   }
 
   function renderTiles() {
@@ -342,10 +388,12 @@ function analyse(rows) {
     $('count').textContent = `${rows.length} of ${data.length} students`;
   }
 
+  let lastText = null;
   function load(text, fileName) {
-    $('fileName').textContent = fileName;
-    const res = analyse(parseCSV(text));
-    showMessages(res.errors, res.warnings);
+    if (fileName !== undefined) $('fileName').textContent = fileName;
+    lastText = text;
+    const res = analyse(parseCSV(text), $('format').value);
+    showMessages(res.errors, res.warnings, res.info);
     data = res.students; statusFilter = ''; configOnly = false;
     $('results').classList.toggle('hidden', !!res.errors.length || !data.length);
     if (res.errors.length) return;
@@ -379,9 +427,13 @@ function analyse(rows) {
   drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
   drop.ondragleave = () => drop.classList.remove('over');
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files[0]); };
-  const cfgText = { pass: 100 - CONFIG.maxLoss, max: CONFIG.maxLoss, ws: CONFIG.workshopComponent,
+  const bos = CONFIG.formats.boston.workshop;
+  const cfgText = { pass: 100 - CONFIG.maxLoss, max: CONFIG.maxLoss, ws: CONFIG.formats.london.workshop.component,
+    bosPts: bos.points, bosIgnore: bos.ignore.join(', '),
     watch: CONFIG.thresholds.watch, atRisk: CONFIG.thresholds.atRisk, highRisk: CONFIG.thresholds.highRisk };
   document.querySelectorAll('[data-cfg]').forEach(el => el.textContent = cfgText[el.dataset.cfg]);
+  $('format').innerHTML += Object.entries(CONFIG.formats).map(([k, f]) => `<option value="${k}">${esc(f.label)}</option>`).join('');
+  $('format').onchange = () => { if (lastText !== null) load(lastText); };
   $('cohort').onchange = renderTable;
   $('search').oninput = renderTable;
 })();
