@@ -18,7 +18,7 @@ BUILD_PLAN.md     # session plan
 - All weightings and thresholds live in `CONFIG`. Never hard-code them elsewhere.
 - Match graded columns by name pattern and require a trailing `(digits)`. Never depend on specific Canvas assignment IDs, because other sections and terms use different IDs.
 - Blank means not yet marked (no loss). `0` means lost. `N/A` or other text is a configuration issue, scored as blank and flagged.
-- Workshops form one 10-mark component, lost only when both are 0.
+- Workshop rules depend on the campus format in `CONFIG.formats`. London: one 10-mark component, lost only when both are 0. Boston: Workshop 1 (0 points) is ignored, and Workshops 2 and 3 count 5 each with no drop rule.
 - Thresholds use marks lost: Watch >0, At-risk >12.5, High-risk >20, Failed >27.5. Boundaries are inclusive on the lower status, so exactly 27.5 is High-risk, not Failed.
 - British English in all UI text.
 
