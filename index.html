@@ -62,7 +62,10 @@
   th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
   th.item, td.item { text-align: center; padding: 8px 4px; }
-  th.item { cursor: default; }
+  th.item, th.chk { cursor: default; }
+  th.chk, td.chk { text-align: center; }
+  tr.emailed td { opacity: .55; }
+  td.chk input { width: 16px; height: 16px; cursor: pointer; }
   tr:last-child td { border-bottom: none; }
   .num { font-variant-numeric: tabular-nums; text-align: right; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
@@ -329,6 +332,8 @@ function analyse(rows, format = 'auto') {
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+  const emailed = new Set();   // session only: lives in memory, never stored
+  const keyOf = s => s.key;
   let data = [], statusFilter = '', configOnly = false, sortKey = 'lost', sortDir = -1;
 
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -369,7 +374,7 @@ function analyse(rows, format = 'auto') {
     const itemKeys = data[0] ? data[0].items.map(i => i.key) : [];
     const arrow = k => sortKey === k ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
     $('table').tHead.innerHTML = `<tr>
-      <th data-k="name">Student${arrow('name')}</th><th data-k="id">SIS ID${arrow('id')}</th>
+      <th class="chk">Emailed</th><th data-k="name">Student${arrow('name')}</th><th data-k="id">SIS ID${arrow('id')}</th>
       <th data-k="coach">Cohort${arrow('coach')}</th><th data-k="status">Status${arrow('status')}</th>
       <th data-k="lost" class="num">Lost${arrow('lost')}</th><th data-k="margin" class="num">Margin${arrow('margin')}</th>
       ${itemKeys.map(k => `<th class="item">${k}</th>`).join('')}<th>Flags</th></tr>`;
@@ -378,7 +383,8 @@ function analyse(rows, format = 'auto') {
       if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = (k === 'lost' || k === 'status') ? -1 : 1; }
       renderTable();
     });
-    $('table').tBodies[0].innerHTML = rows.map(s => `<tr>
+    $('table').tBodies[0].innerHTML = rows.map(s => `<tr class="${emailed.has(keyOf(s)) ? 'emailed' : ''}">
+      <td class="chk"><input type="checkbox" data-k="${esc(keyOf(s))}" aria-label="Emailed: ${esc(s.name)}"${emailed.has(keyOf(s)) ? ' checked' : ''}></td>
       <td>${esc(s.name)}</td><td>${esc(s.id)}</td><td>${esc(s.coach)}</td>
       <td><span class="badge b-${s.status}">${s.status}</span></td>
       <td class="num">${s.lost}</td><td class="num">${s.margin < 0 ? '—' : s.margin}</td>
@@ -394,6 +400,8 @@ function analyse(rows, format = 'auto') {
     lastText = text;
     const res = analyse(parseCSV(text), $('format').value);
     showMessages(res.errors, res.warnings, res.info);
+    const seen = {};
+    res.students.forEach(s => { const k = `${s.id}|${s.name}`; s.key = `${k}|${seen[k] = (seen[k] || 0) + 1}`; });  // unique even if IDs repeat
     data = res.students; statusFilter = ''; configOnly = false;
     $('results').classList.toggle('hidden', !!res.errors.length || !data.length);
     if (res.errors.length) return;
@@ -434,6 +442,12 @@ function analyse(rows, format = 'auto') {
   document.querySelectorAll('[data-cfg]').forEach(el => el.textContent = cfgText[el.dataset.cfg]);
   $('format').innerHTML += Object.entries(CONFIG.formats).map(([k, f]) => `<option value="${k}">${esc(f.label)}</option>`).join('');
   $('format').onchange = () => { if (lastText !== null) load(lastText); };
+  $('table').tBodies[0].onchange = e => {
+    const box = e.target, k = box.dataset.k;
+    if (k === undefined) return;
+    if (box.checked) emailed.add(k); else emailed.delete(k);
+    box.closest('tr').classList.toggle('emailed', box.checked);
+  };
   $('cohort').onchange = renderTable;
   $('search').oninput = renderTable;
 })();
