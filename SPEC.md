@@ -86,7 +86,8 @@ Margin = 27.5 − marks lost. Show "—" when negative.
 - A drop zone or file picker for `.csv`, `.xlsx` and `.xls`.
 - A message area for errors (red), weighting warnings (amber) and info (neutral).
 - Summary tiles showing counts for Failed, High-risk, At-risk, Watch, Clear and Configuration issue. Clicking a tile toggles it as a filter.
-- Controls: a cohort dropdown, a search box (name or SIS ID), and a "n of N students" count.
+- Controls: a cohort dropdown, a status dropdown (kept in step with the status tiles), a search box (name or SIS ID), a "Copy SIS IDs" button, and a "n of N students" count.
+- "Copy SIS IDs" copies the SIS IDs of every student in the current view (after all filters, in the current sort order) to the clipboard as a comma-separated list with no spaces. Blank IDs are skipped and reported.
 - A table with columns Student, SIS ID, Cohort, Status, Lost, Margin, one cell per item (S1, D1, …, S4, D4, W2, W3), and Flags.
   - Item cells show ✓ earned, ✗ lost, · pending, ! configuration, ? unexpected.
   - Default sort is by marks lost, descending. Column headers are sortable.
@@ -94,7 +95,7 @@ Margin = 27.5 − marks lost. Show "—" when negative.
 - Light and dark themes via `prefers-color-scheme`. The layout must be usable at narrow widths, with the table scrolling horizontally.
 
 ## Code structure
-- All pure logic sits between `// BEGIN CORE` and `// END CORE` in `index.html`: `CONFIG`, `parseCSV`, `findColumns`, `classifyCell`, `statusFor`, `isTestStudent`, `coachFromSection`, `detectFormats`, `analyse`. This block must not reference the DOM.
+- All pure logic sits between `// BEGIN CORE` and `// END CORE` in `index.html`: `CONFIG`, `parseCSV`, `findColumns`, `classifyCell`, `statusFor`, `isTestStudent`, `coachFromSection`, `detectFormats`, `analyse`, `sisIdList`. This block must not reference the DOM.
 - The UI script follows in a separate `<script>` block.
 - All thresholds and weightings live in `CONFIG`.
 

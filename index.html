@@ -56,6 +56,10 @@
   select, input[type=search] { font: inherit; color: var(--ink); background: var(--surface);
     border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
   input[type=search] { min-width: 200px; flex: 1; max-width: 320px; }
+  .btn { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .copy-note { color: var(--muted); font-size: 13px; }
   .count { color: var(--muted); margin-left: auto; font-size: 13px; }
   .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
   table { border-collapse: collapse; width: 100%; min-width: 900px; }
@@ -114,8 +118,11 @@
   <section id="results" class="hidden">
     <div class="tiles" id="tiles"></div>
     <div class="controls">
-      <select id="cohort"><option value="">All cohorts</option></select>
+      <select id="cohort" aria-label="Cohort"><option value="">All cohorts</option></select>
+      <select id="status" aria-label="Status"><option value="">All statuses</option></select>
       <input type="search" id="search" placeholder="Search name or ID">
+      <button type="button" class="btn" id="copyIds" title="Copy the SIS IDs of the students shown, separated by commas">Copy SIS IDs</button>
+      <span class="copy-note" id="copyNote" role="status"></span>
       <span class="count" id="count"></span>
     </div>
     <div class="table-wrap"><table id="table"><thead></thead><tbody></tbody></table></div>
@@ -326,6 +333,12 @@ function analyse(rows, format = 'auto') {
   if (excluded) info.push(`${excluded} test student row${excluded > 1 ? 's' : ''} excluded.`);
   return { errors: [], students, warnings, info, format };
 }
+
+// SIS IDs of the given students, in order, comma-separated. Blank IDs are skipped and counted.
+function sisIdList(students) {
+  const ids = students.map(s => String(s.id || '').trim()).filter(Boolean);
+  return { text: ids.join(','), count: ids.length, missing: students.filter(s => !String(s.id || '').trim()).length };
+}
 // END CORE
 </script>
 
@@ -334,7 +347,7 @@ function analyse(rows, format = 'auto') {
   const $ = id => document.getElementById(id);
   const emailed = new Set();   // session only: lives in memory, never stored
   const keyOf = s => s.key;
-  let data = [], statusFilter = '', configOnly = false, sortKey = 'lost', sortDir = -1;
+  let data = [], view = [], statusFilter = '', configOnly = false, sortKey = 'lost', sortDir = -1;
 
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const symbol = { earned: '✓', lost: '✗', pending: '·', config: '!', odd: '?' };
@@ -358,6 +371,7 @@ function analyse(rows, format = 'auto') {
       if (s === 'config') configOnly = !configOnly; else statusFilter = statusFilter === s ? '' : s;
       renderTiles(); renderTable();
     });
+    $('status').value = statusFilter;
   }
 
   function renderTable() {
@@ -392,6 +406,7 @@ function analyse(rows, format = 'auto') {
       <td>${s.config ? '<span class="flag f-config">N/A config</span>' : ''}${s.safetyNetUsed ? '<span class="flag f-net">Workshop net used</span>' : ''}${s.odd ? '<span class="flag f-odd">Unexpected value</span>' : ''}</td>
     </tr>`).join('');
     $('count').textContent = `${rows.length} of ${data.length} students`;
+    view = rows; $('copyNote').textContent = '';
   }
 
   let lastText = null;
@@ -407,6 +422,7 @@ function analyse(rows, format = 'auto') {
     if (res.errors.length) return;
     const coaches = [...new Set(data.map(s => s.coach))].sort();
     $('cohort').innerHTML = '<option value="">All cohorts</option>' + coaches.map(c => `<option>${esc(c)}</option>`).join('');
+    $('status').innerHTML = '<option value="">All statuses</option>' + STATUS_ORDER.map(s => `<option>${s}</option>`).join('');
     renderTiles(); renderTable();
   }
 
@@ -449,6 +465,20 @@ function analyse(rows, format = 'auto') {
     box.closest('tr').classList.toggle('emailed', box.checked);
   };
   $('cohort').onchange = renderTable;
+  $('status').onchange = () => { statusFilter = $('status').value; renderTiles(); renderTable(); };
+  $('copyIds').onclick = async () => {
+    const { text, count, missing } = sisIdList(view);
+    const note = missing ? ` (${missing} without an SIS ID skipped)` : '';
+    if (!count) { $('copyNote').textContent = 'No SIS IDs in the current view' + note + '.'; return; }
+    try { await navigator.clipboard.writeText(text); }
+    catch {
+      const ta = Object.assign(document.createElement('textarea'), { value: text });
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); ta.remove();
+      if (!ok) { window.prompt('Copy the SIS IDs:', text); return; }
+    }
+    $('copyNote').textContent = `Copied ${count} SIS ID${count > 1 ? 's' : ''}${note}.`;
+  };
   $('search').oninput = renderTable;
 })();
 </script>

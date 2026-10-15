@@ -3,7 +3,7 @@ const fs = require('fs');
 const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 const core = html.split('// BEGIN CORE')[1].split('// END CORE')[0].replace(/^[^\n]*\n/, '');
-const { CONFIG, parseCSV, findColumns, analyse, statusFor } = new Function(core + '; return { CONFIG, parseCSV, findColumns, analyse, statusFor };')();
+const { CONFIG, parseCSV, findColumns, analyse, statusFor, sisIdList } = new Function(core + '; return { CONFIG, parseCSV, findColumns, analyse, statusFor, sisIdList };')();
 const LON = CONFIG.formats.london;
 
 // Thresholds
@@ -121,6 +121,10 @@ assert.deepStrictEqual([b.edge.lost, b.edge.margin, b.edge.status], [27.5, 0, 'H
 assert.deepStrictEqual([b.fail.lost, b.fail.status], [32.5, 'Failed']);
 // A Boston export forced into London format is rejected rather than misread
 assert.ok(/Expected 2 .* found 3/.test(analyse(parseCSV([HB, PB, rowB('x', ',,,,,,,,,,')].join('\n')), 'london').errors[0]));
+
+// SIS ID export: order kept, blanks skipped and counted
+assert.deepStrictEqual(sisIdList([{ id: 'B2' }, { id: ' A1 ' }, { id: '' }, { id: 'C3' }, {}]), { text: 'B2,A1,C3', count: 3, missing: 2 });
+assert.deepStrictEqual(sisIdList([]), { text: '', count: 0, missing: 0 });
 
 // Real sample, if present: expected counts from independent Python check
 if (fs.existsSync(__dirname + '/sample.csv')) {
